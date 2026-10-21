@@ -1,7 +1,9 @@
 import express from 'express';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import { db } from '../data/store.js';
 import { generateToken, protect } from '../middleware/auth.js';
+import { User, Customer } from '../models/index.js';
 
 const router = express.Router();
 
@@ -18,15 +20,172 @@ const generateRefreshToken = (userId) => {
   return token;
 };
 
+// POST /api/v1/auth/register
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password, role = 'advisor', phone = '', specialty = '' } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Full name is required' });
+    }
+    if (!email || !email.trim()) {
+      return res.status(400).json({ success: false, message: 'Email address is required' });
+    }
+    if (!password || password.length < 4) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 4 characters long' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanName = name.trim();
+    const validRoles = ['advisor', 'technician', 'manager', 'customer', 'parts', 'accounting', 'admin'];
+    const userRole = validRoles.includes(role?.toLowerCase()) ? role.toLowerCase() : 'advisor';
+
+    // Check if user already exists
+    let existingUser = db.users.findOne(u => u.email.toLowerCase() === cleanEmail);
+    if (!existingUser && mongoose.connection.readyState === 1) {
+      try {
+        existingUser = await User.findOne({ email: cleanEmail });
+      } catch (err) {
+        console.warn('MongoDB duplicate check warning:', err.message);
+      }
+    }
+
+    if (existingUser) {
+      return res.status(409).json({ success: false, message: 'An account with this email already exists. Please sign in.' });
+    }
+
+    const userId = `usr_${userRole}_${Date.now()}`;
+    const newUser = {
+      id: userId,
+      name: cleanName,
+      email: cleanEmail,
+      password: password,
+      role: userRole,
+      phone: phone ? phone.trim() : '',
+      specialty: specialty ? specialty.trim() : (userRole === 'technician' ? 'Master Diagnostics' : ''),
+      avatar: '',
+      mfaEnabled: false,
+      createdAt: new Date().toISOString()
+    };
+
+    db.users.create(newUser);
+
+    if (mongoose.connection.readyState === 1) {
+      try {
+        await User.create({
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          password: newUser.password,
+          role: newUser.role,
+          phone: newUser.phone,
+          specialty: newUser.specialty,
+          avatar: newUser.avatar,
+          mfaEnabled: false
+        });
+      } catch (mongoErr) {
+        console.warn('MongoDB user insertion warning:', mongoErr.message);
+      }
+    }
+
+    if (userRole === 'customer') {
+      const customerId = `cust_${Date.now()}`;
+      const newCustomer = {
+        id: customerId,
+        userId: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone || '555-0100',
+        address: '',
+        consent: { marketingSms: true, telematicsDataCollection: true },
+        membership: {
+          tier: 'Standard',
+          status: 'active',
+          number: `MBR-${Math.floor(10000 + Math.random() * 90000)}`,
+          renewDate: '2027-01-01',
+          benefits: ['Digital Multi-Point Inspection', 'Direct Technician Messaging']
+        },
+        vehicles: []
+      };
+
+      db.customers.create(newCustomer);
+
+      if (mongoose.connection.readyState === 1) {
+        try {
+          await Customer.create(newCustomer);
+        } catch (e) {
+          console.warn('MongoDB customer insertion warning:', e.message);
+        }
+      }
+    }
+
+    const token = generateToken(newUser);
+    const refreshToken = generateRefreshToken(newUser.id);
+
+    db.audit.create({
+      eventType: 'USER_REGISTERED',
+      entityType: 'User',
+      entityId: newUser.id,
+      actorId: newUser.id,
+      actorRole: newUser.role,
+      action: `User ${newUser.name} registered successfully with role ${newUser.role} (${newUser.email})`
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Account created successfully',
+      token,
+      refreshToken,
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        phone: newUser.phone,
+        specialty: newUser.specialty,
+        avatar: newUser.avatar,
+        mfaEnabled: false
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ success: false, message: 'Server error during registration: ' + error.message });
+  }
+});
+
 // POST /api/v1/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const { email, password, role, mfaCode } = req.body;
 
-  let user;
+  let user = null;
   if (email) {
     user = db.users.findOne(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user && mongoose.connection.readyState === 1) {
+      try {
+        const mongoUser = await User.findOne({ email: email.toLowerCase() });
+        if (mongoUser) {
+          user = {
+            id: mongoUser.id,
+            name: mongoUser.name,
+            email: mongoUser.email,
+            password: mongoUser.password,
+            role: mongoUser.role,
+            phone: mongoUser.phone,
+            specialty: mongoUser.specialty,
+            avatar: mongoUser.avatar,
+            mfaEnabled: mongoUser.mfaEnabled
+          };
+          db.users.create(user);
+        }
+      } catch (e) {
+        console.warn('MongoDB user lookup warning:', e.message);
+      }
+    }
+
+    if (user && password && user.password && user.password !== password) {
+      return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
   } else if (role) {
-    // Quick demo login by role
     user = db.users.findOne(u => u.role === role);
   }
 
