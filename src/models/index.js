@@ -88,15 +88,11 @@ export const LocationSchema = new Schema({
   phone: String,
   email: String,
   baysCount: Number,
-  bays: [{
-    id: String,
-    name: String,
-    type: String,
-    occupiedRoId: String
-  }],
+  bays: [{ type: Schema.Types.Mixed }],
   salesTaxRate: { type: Number, default: 0.0825 },
   laborRateStandard: { type: Number, default: 175.00 },
   laborRateDiagnostics: { type: Number, default: 195.00 },
+  laborRateEv: { type: Number, default: 215.00 },
   operatingHours: String
 });
 
