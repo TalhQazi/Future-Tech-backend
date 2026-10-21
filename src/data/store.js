@@ -30,30 +30,58 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, 'db.json');
 
-// In-memory state store
+const cleanUsers = [
+  {
+    id: "usr_advisor_1",
+    name: "Service Advisor",
+    email: "advisor@futuretech.com",
+    password: "password123",
+    role: "advisor",
+    phone: "555-0101"
+  },
+  {
+    id: "usr_tech_1",
+    name: "Master Technician",
+    email: "tech@futuretech.com",
+    password: "password123",
+    role: "technician",
+    phone: "555-0102",
+    specialty: "Master Diagnostics / High Voltage & Powertrain"
+  },
+  {
+    id: "usr_manager_1",
+    name: "Shop Manager",
+    email: "manager@futuretech.com",
+    password: "password123",
+    role: "manager",
+    phone: "555-0103"
+  }
+];
+
+// Clean in-memory state store with zero dummy data
 let state = {
-  users: [...seedUsers],
-  customers: [...seedCustomers],
-  vehicles: [...seedVehicles],
-  repairOrders: [...seedRepairOrders],
-  inspections: [...seedInspections],
-  diagnostics: [...seedFutureTechDiagnostics],
-  estimates: [...seedEstimates],
-  partsRequests: [...seedPartsRequests],
-  invoices: [...seedInvoices],
-  locations: [...seedLocations],
-  appointments: [...seedAppointments],
-  inventory: [...seedInventory],
+  users: [...cleanUsers],
+  customers: [],
+  vehicles: [],
+  repairOrders: [],
+  inspections: [],
+  diagnostics: [],
+  estimates: [],
+  partsRequests: [],
+  invoices: [],
+  locations: [],
+  appointments: [],
+  inventory: [],
   membershipPlans: [...seedMembershipPlans],
   serviceRiders: [...seedServiceRiders],
   wiringDiagrams: [...seedWiringDiagrams],
   confirmedFixes: [...seedConfirmedFixes],
   forumThreads: [...seedForumThreads],
-  fuelLogs: [...seedFuelLogs],
-  messages: [...seedMessages],
-  auditLogs: [...seedAuditLogs],
-  aiExecutionLogs: [...seedAiExecutionLogs],
-  predictiveSignals: [...seedPredictiveSignals],
+  fuelLogs: [],
+  messages: [],
+  auditLogs: [],
+  aiExecutionLogs: [],
+  predictiveSignals: [],
   refreshTokens: []
 };
 
@@ -66,26 +94,29 @@ export const initStore = () => {
       state = {
         ...state,
         ...parsed,
-        locations: parsed.locations && parsed.locations.length > 0 ? parsed.locations : [...seedLocations],
-        appointments: parsed.appointments && parsed.appointments.length > 0 ? parsed.appointments : [...seedAppointments],
-        inventory: parsed.inventory && parsed.inventory.length > 0 ? parsed.inventory : [...seedInventory],
+        users: parsed.users && parsed.users.length > 0 ? parsed.users : [...cleanUsers],
+        customers: parsed.customers || [],
+        vehicles: parsed.vehicles || [],
+        repairOrders: parsed.repairOrders || [],
+        inspections: parsed.inspections || [],
+        diagnostics: parsed.diagnostics || [],
+        estimates: parsed.estimates || [],
+        partsRequests: parsed.partsRequests || [],
+        invoices: parsed.invoices || [],
+        appointments: parsed.appointments || [],
+        inventory: parsed.inventory || [],
         membershipPlans: parsed.membershipPlans && parsed.membershipPlans.length > 0 ? parsed.membershipPlans : [...seedMembershipPlans],
         serviceRiders: parsed.serviceRiders && parsed.serviceRiders.length > 0 ? parsed.serviceRiders : [...seedServiceRiders],
         wiringDiagrams: parsed.wiringDiagrams && parsed.wiringDiagrams.length > 0 ? parsed.wiringDiagrams : [...seedWiringDiagrams],
         confirmedFixes: parsed.confirmedFixes && parsed.confirmedFixes.length > 0 ? parsed.confirmedFixes : [...seedConfirmedFixes],
         forumThreads: parsed.forumThreads && parsed.forumThreads.length > 0 ? parsed.forumThreads : [...seedForumThreads],
-        fuelLogs: parsed.fuelLogs && parsed.fuelLogs.length > 0 ? parsed.fuelLogs : [...seedFuelLogs],
-        messages: parsed.messages && parsed.messages.length > 0 ? parsed.messages : [...seedMessages],
-        auditLogs: parsed.auditLogs && parsed.auditLogs.length > 0 ? parsed.auditLogs : [...seedAuditLogs],
-        aiExecutionLogs: parsed.aiExecutionLogs && parsed.aiExecutionLogs.length > 0 ? parsed.aiExecutionLogs : [...seedAiExecutionLogs],
-        predictiveSignals: parsed.predictiveSignals && parsed.predictiveSignals.length > 0 ? parsed.predictiveSignals : [...seedPredictiveSignals],
         refreshTokens: parsed.refreshTokens || []
       };
       saveStore();
-      console.log('📦 Loaded existing shop database from disk.');
+      console.log('📦 Clean shop database initialized with zero dummy records.');
     } else {
       saveStore();
-      console.log('🌱 Initialized shop database with comprehensive seed data.');
+      console.log('🌱 Clean shop database initialized.');
     }
   } catch (err) {
     console.warn('⚠️ Could not load persisted db.json, using in-memory state:', err.message);
