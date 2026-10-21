@@ -347,17 +347,46 @@ router.get('/me', protect, (req, res) => {
 });
 
 // GET /api/v1/auth/users
-router.get('/users', (req, res) => {
-  const users = db.users.find().map(u => ({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    role: u.role,
-    phone: u.phone,
-    specialty: u.specialty,
-    avatar: u.avatar
-  }));
-  res.json({ success: true, users });
+router.get('/users', async (req, res) => {
+  try {
+    let users = [...db.users.find()];
+    if (mongoose.connection.readyState === 1) {
+      try {
+        const mongoUsers = await User.find().lean();
+        const existingKeys = new Set(users.map(u => (u.id || u.email || '').toLowerCase()));
+        for (const mu of mongoUsers) {
+          const key = (mu.id || mu.email || '').toLowerCase();
+          if (!existingKeys.has(key)) {
+            users.push({
+              id: mu.id,
+              name: mu.name,
+              email: mu.email,
+              role: mu.role,
+              phone: mu.phone,
+              specialty: mu.specialty,
+              avatar: mu.avatar
+            });
+            existingKeys.add(key);
+          }
+        }
+      } catch (e) {
+        console.warn('MongoDB users fetch warning:', e.message);
+      }
+    }
+
+    const sanitized = users.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      phone: u.phone,
+      specialty: u.specialty,
+      avatar: u.avatar
+    }));
+    res.json({ success: true, users: sanitized });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 export default router;
