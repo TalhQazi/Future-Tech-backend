@@ -1,8 +1,8 @@
 import { Schema, idField, baseOptions, immutablePlugin, model } from './common.js';
 
-export const ROLES = ['advisor', 'technician', 'manager', 'parts', 'accounting', 'admin', 'customer'];
+export const ROLES = ['advisor', 'technician', 'manager', 'parts', 'accounting', 'executive', 'admin', 'customer'];
 export const STAFF_ROLES = ROLES.filter(r => r !== 'customer');
-export const MFA_REQUIRED_ROLES = ['manager', 'admin', 'accounting'];
+export const MFA_REQUIRED_ROLES = ['manager', 'admin', 'accounting', 'executive'];
 
 const UserSchema = new Schema({
   id: idField,

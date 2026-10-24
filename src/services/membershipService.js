@@ -150,6 +150,10 @@ export const enroll = async (req, input) => {
     }, session);
     return { membership, invoice };
   });
+  if (result.invoice) {
+    const { queueEconomics } = await import('./economicsService.js');
+    await queueEconomics('invoice', { invoiceId: result.invoice.id }, result.invoice.id);
+  }
   return { membership: toDTO(result.membership.toObject()), invoice: result.invoice ? toDTO(result.invoice) : null };
 };
 

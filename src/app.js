@@ -16,6 +16,8 @@ import roRoutes from './routes/v1/repairOrders.js';
 import operationsRoutes from './routes/v1/operations.js';
 import futuretechRoutes from './routes/v1/futuretech.js';
 import engagementRoutes from './routes/v1/engagement.js';
+import intelligenceRoutes from './routes/v1/intelligence.js';
+import mongoose from 'mongoose';
 // registers background job handlers
 import './services/messageService.js';
 import './services/intelligenceService.js';
@@ -64,12 +66,17 @@ app.use('/api', async (_req, _res, next) => {
 const health = (_req, res) => res.json({ success: true, status: 'healthy', apiVersion: 'v1', time: new Date().toISOString() });
 app.get('/api/v1/health', health);
 app.get('/api/health', health);
+// Readiness: database connection usable
+app.get('/api/v1/ready', (_req, res) => {
+  const up = mongoose.connection.readyState === 1;
+  res.status(up ? 200 : 503).json({ success: up, database: up ? 'connected' : 'unavailable' });
+});
 
 // Single authentication gate; only these paths are reachable without a session.
-const PUBLIC_PATHS = [/^\/auth\//, /^\/health$/, /^\/payments\/stripe\/webhook$/, /^\/internal\/jobs\/run$/, /^\/automind\/ingest$/];
+const PUBLIC_PATHS = [/^\/auth\//, /^\/health$/, /^\/ready$/, /^\/payments\/stripe\/webhook$/, /^\/internal\/jobs\/run$/, /^\/automind\/ingest$/];
 app.use('/api/v1', (req, res, next) => (PUBLIC_PATHS.some(rx => rx.test(req.path)) ? next() : authenticate(req, res, next)));
 
-const routers = [['/auth', authRoutes], ['', adminRoutes], ['', crmRoutes], ['', roRoutes], ['', operationsRoutes], ['', futuretechRoutes], ['', engagementRoutes]];
+const routers = [['/auth', authRoutes], ['', adminRoutes], ['', crmRoutes], ['', roRoutes], ['', operationsRoutes], ['', futuretechRoutes], ['', engagementRoutes], ['', intelligenceRoutes]];
 for (const [prefix, router] of routers) {
   app.use(`/api/v1${prefix}`, router);
 }

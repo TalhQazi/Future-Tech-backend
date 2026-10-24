@@ -5,6 +5,7 @@ import { nextNumber, shortCode } from './sequence.js';
 import { authorizedLinesForRo } from './estimateService.js';
 import { recordEntitlementUsage } from './membershipService.js';
 import { timelineEvent } from './roService.js';
+import { queueEconomics } from './economicsService.js';
 import { findRoForAccess, assertLocation, locationFilter, assertCustomerScope, projectCustomer } from '../security/access.js';
 import { notFound, conflict, unprocessable, badRequest } from '../lib/errors.js';
 import { roundDiv } from '../lib/money.js';
@@ -144,6 +145,7 @@ export const postInvoice = async (req, invoiceId) => {
     await recomputeBalance(invoiceId, session);
     await audit(req, { eventType: 'INVOICE_POSTED', category: 'financial', entityType: 'Invoice', entityId: invoiceId, locationId: invoice.locationId, action: `Posted ${invoice.invoiceNumber}: total ${invoice.totals.totalCents} ${invoice.currency} cents` }, session);
   });
+  await queueEconomics('invoice', { invoiceId }, invoiceId);
   return getInvoice(req.auth, invoiceId);
 };
 

@@ -8,7 +8,7 @@ import * as notifications from '../../services/notificationService.js';
 import * as memberships from '../../services/membershipService.js';
 import * as analytics from '../../services/analyticsService.js';
 import { handleStripeWebhook } from '../../services/paymentService.js';
-import { processDueJobs } from '../../services/jobService.js';
+import { processDueJobs, enqueueDailyJobs } from '../../services/jobService.js';
 import { RepairOrder, Vehicle, Invoice, Estimate, Appointment, PredictiveSignal } from '../../models/index.js';
 import { RO_OPEN_STATUSES } from '../../models/operations.js';
 import { env } from '../../config/env.js';
@@ -24,6 +24,7 @@ r.post('/payments/stripe/webhook', h(async (req, res) => ok(res, await handleStr
 r.post('/internal/jobs/run', h(async (req, res) => {
   const token = (req.get('Authorization') || '').replace(/^Bearer /, '');
   if (!env.cronSecret || !timingSafeEqualStr(token, env.cronSecret)) throw forbidden('Invalid cron credentials');
+  await enqueueDailyJobs().catch(() => {});
   ok(res, { result: await processDueJobs({ limit: 50 }) });
 }));
 

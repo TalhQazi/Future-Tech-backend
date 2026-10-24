@@ -5,6 +5,7 @@ import { nextNumber, shortCode } from './sequence.js';
 import { recomputeBalance } from './invoiceService.js';
 import { activateFromPayment } from './membershipService.js';
 import { stripeAdapter } from '../adapters/payments.js';
+import { queueEconomics } from './economicsService.js';
 import { assertLocation, assertCustomerScope } from '../security/access.js';
 import { notFound, conflict, badRequest, forbidden, unprocessable } from '../lib/errors.js';
 import { localDate, isDateString } from '../lib/time.js';
@@ -44,6 +45,7 @@ export const recordManualPayment = async (req, invoiceId, { amountCents, method,
     await audit(req, { eventType: 'PAYMENT_RECORDED', category: 'financial', entityType: 'Invoice', entityId: invoiceId, locationId: inv.locationId, action: `${p.receiptNumber}: ${amountCents} cents by ${method}${reference ? ` (ref ${reference})` : ''}` }, session);
     return p;
   });
+  await queueEconomics('payment', { paymentId: payment.id }, payment.id);
   return toDTO(payment.toObject());
 };
 
@@ -86,6 +88,7 @@ const applyIntent = async (payment, intent) => {
       await audit(null, { eventType: 'PAYMENT_RECORDED', category: 'financial', entityType: 'Invoice', entityId: payment.invoiceId, locationId: payment.locationId, actorId: 'stripe', actorRole: 'payment_provider', action: `${payment.receiptNumber}: ${payment.amountCents} cents online card (${intent.id})` }, session);
     }
   });
+  if (status === 'succeeded') await queueEconomics('payment', { paymentId: payment.id }, payment.id);
   return Payment.findOne({ id: payment.id }).lean();
 };
 
@@ -159,6 +162,7 @@ export const decideRefund = async (req, refundId, { approve, note }) => {
     await recomputeBalance(refund.invoiceId, session);
     await audit(req, { eventType: 'REFUND_APPROVED', category: 'financial', entityType: 'Refund', entityId: refundId, locationId: refund.locationId, action: `Approved and processed ${refund.refundNumber} (${refund.amountCents} cents via ${refund.provider})`, reason: note }, session);
   });
+  await queueEconomics('refund', { refundId }, refundId);
   return toDTO(await Refund.findOne({ id: refundId }).lean());
 };
 
@@ -186,6 +190,7 @@ export const createAdjustment = async (req, invoiceId, { type, amountCents, reas
     await audit(req, { eventType: 'FINANCIAL_ADJUSTMENT_POSTED', category: 'financial', entityType: 'Invoice', entityId: invoiceId, locationId: inv.locationId, action: `${type} (${direction}) of ${amountCents} cents on ${inv.invoiceNumber}`, reason }, session);
     return adj;
   });
+  await queueEconomics('adjustment', { adjustmentId: result.id }, result.id);
   return toDTO(result.toObject());
 };
 

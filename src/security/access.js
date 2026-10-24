@@ -6,6 +6,8 @@ import { RepairOrder } from '../models/index.js';
 // locations they are assigned to; corporate admins see every location.
 
 export const isAdmin = (auth) => auth?.role === 'admin';
+// Corporate roles see every location.
+export const isCorporateScope = (auth) => ['admin', 'executive'].includes(auth?.role);
 
 export const can = (auth, permission) => Boolean(auth && hasPermission(auth.role, permission));
 
@@ -14,14 +16,14 @@ export const assertCan = (auth, permission) => {
 };
 
 export const assertLocation = (auth, locationId) => {
-  if (isAdmin(auth)) return;
+  if (isCorporateScope(auth)) return;
   if (!locationId || !auth.locationIds.includes(locationId)) {
     throw forbidden('This record belongs to a location you are not assigned to');
   }
 };
 
 export const locationFilter = (auth, field = 'locationId') =>
-  (isAdmin(auth) ? {} : { [field]: { $in: auth.locationIds } });
+  (isCorporateScope(auth) ? {} : { [field]: { $in: auth.locationIds } });
 
 // Picks the requested location when permitted, otherwise the user's primary one.
 export const resolveLocationId = (auth, requested) => {

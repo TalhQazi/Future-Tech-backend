@@ -24,6 +24,8 @@ export const PERMISSIONS = [
   'forum:read', 'forum:write', 'forum:moderate',
   'fuel:read', 'fuel:write', 'predictive:read', 'predictive:manage',
   'ai:use', 'ai:review', 'ai:admin',
+  'economics:customer_value', 'economics:location', 'economics:corporate', 'economics:config',
+  'risk:alerts', 'risk:read', 'interventions:read', 'interventions:manage',
   'portal:access'
 ];
 
@@ -41,7 +43,8 @@ const ADVISOR = [
   'messages:read', 'messages:send', 'messages:internal',
   'diagnostics:read', 'techdata:read', 'fixes:read', 'parts_intel:read',
   'forum:read', 'forum:write', 'fuel:read', 'fuel:write', 'predictive:read',
-  'ai:use', 'ai:review'
+  'ai:use', 'ai:review',
+  'economics:customer_value', 'risk:alerts'
 ];
 
 const TECHNICIAN = [
@@ -84,10 +87,18 @@ const MANAGER = [...new Set([
   'users:manage', 'locations:manage', 'ros:close', 'ros:qc', 'ros:override', 'time:correct',
   'catalog:manage', 'devices:manage', 'devices:command_privileged',
   'techdata:manage', 'techdata:review', 'fixes:verify', 'forum:moderate', 'predictive:manage',
-  'analytics:location', 'audit:read', 'ai:review'
+  'analytics:location', 'audit:read', 'ai:review',
+  'economics:location', 'risk:read', 'interventions:read', 'interventions:manage'
 ])].filter(p => p !== 'portal:access');
 
 const ADMIN = PERMISSIONS.filter(p => p !== 'portal:access');
+
+// Corporate executive: read-only portfolio, location, plan and member/VIN economics and forecasts.
+const EXECUTIVE = [
+  'users:read', 'locations:read', 'customers:read', 'vehicles:read', 'memberships:read', 'ros:read', 'invoices:read',
+  'analytics:location', 'analytics:corporate', 'economics:customer_value', 'economics:location', 'economics:corporate',
+  'risk:alerts', 'risk:read', 'interventions:read', 'audit:read'
+];
 
 const CUSTOMER = ['portal:access'];
 
@@ -97,6 +108,7 @@ export const ROLE_PERMISSIONS = Object.freeze({
   parts: new Set(PARTS),
   accounting: new Set(ACCOUNTING),
   manager: new Set(MANAGER),
+  executive: new Set(EXECUTIVE),
   admin: new Set(ADMIN),
   customer: new Set(CUSTOMER)
 });
@@ -107,6 +119,6 @@ export const permissionsFor = (role) => [...(ROLE_PERMISSIONS[role] || [])].sort
 
 // Which roles a manager may create/edit; only admins manage managers and admins.
 export const MANAGEABLE_ROLES = Object.freeze({
-  admin: ['advisor', 'technician', 'parts', 'accounting', 'manager', 'admin'],
+  admin: ['advisor', 'technician', 'parts', 'accounting', 'manager', 'executive', 'admin'],
   manager: ['advisor', 'technician', 'parts', 'accounting']
 });

@@ -23,7 +23,8 @@ export const requestLogger = (req, res, next) => {
       p: req.originalUrl.split('?')[0],
       s: res.statusCode,
       ms: Math.round(ms),
-      u: req.auth?.userId
+      u: req.auth?.userId,
+      ...(ms > 1500 ? { slow: true } : {})
     };
     console.log(JSON.stringify(line));
   });

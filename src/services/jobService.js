@@ -66,11 +66,21 @@ export const processDueJobs = async ({ limit = 25 } = {}) => {
   return results;
 };
 
+// Daily scheduled work (deduplicated per UTC day across workers/instances).
+let lastDaily = '';
+export const enqueueDailyJobs = async () => {
+  const day = new Date().toISOString().slice(0, 10);
+  if (day === lastDaily) return;
+  await enqueueJob('economics.risk_refresh_all', { scheduled: true }, `risk-daily:${day}`);
+  lastDaily = day;
+};
+
 let timer = null;
 export const startInProcessWorker = (intervalMs = 10_000) => {
   if (timer) return;
   const tick = async () => {
     try {
+      await enqueueDailyJobs().catch(() => {});
       await processDueJobs();
     } catch (err) {
       console.error('[jobs] worker tick failed:', err.message);

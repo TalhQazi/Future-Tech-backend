@@ -14,3 +14,4 @@ export * from './finance.js';
 export * from './communications.js';
 export * from './diagnostics.js';
 export * from './intelligence.js';
+export * from './economics.js';
