@@ -121,7 +121,8 @@ const RepairOrderSchema = new Schema({
   promisedAt: Date,
   preauthorizedCents: centsField(), // customer pre-authorised spend (e.g. diagnostic time)
   concerns: { type: [ConcernSchema], default: [] },
-  advisorNotes: { type: String, default: '' },
+  advisorNotes: { type: String, default: '' },     // internal, never shown to the customer
+  customerNotes: { type: String, default: '' },    // shown on the customer estimate / portal
   jobs: { type: [JobSchema], default: [] },
   safetyEscalations: { type: [SafetyEscalationSchema], default: [] },
   qc: {

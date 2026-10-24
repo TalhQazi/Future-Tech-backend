@@ -28,6 +28,8 @@ r.post('/repair-orders/:id/status', requirePermission('ros:write'), validate({ b
   h(async (req, res) => ok(res, { repairOrder: await ros.changeStatus(req, req.params.id, req.body, expectedVersion(req)) })));
 r.post('/repair-orders/:id/dispatch', requirePermission('ros:dispatch'), validate({ body: z.object({ assignedTechId: id.nullable().optional(), bayId: id.nullable().optional(), promisedAt: z.string().datetime({ offset: true }).nullable().optional(), priority: z.enum(['normal', 'high', 'urgent']).optional() }) }),
   h(async (req, res) => ok(res, { repairOrder: await ros.dispatch(req, req.params.id, req.body) })));
+r.patch('/repair-orders/:id/notes', requirePermission('ros:write'), validate({ body: z.object({ advisorNotes: text(4000).optional(), customerNotes: text(4000).optional() }) }),
+  h(async (req, res) => ok(res, { repairOrder: await ros.updateNotes(req, req.params.id, req.body) })));
 r.post('/repair-orders/:id/concerns', requireAnyPermission('ros:write', 'jobs:execute'), validate({ body: z.object({ text: reqText(2000), source: z.enum(['customer', 'advisor', 'technician']).optional() }) }),
   h(async (req, res) => ok(res, { repairOrder: await ros.addConcern(req, req.params.id, req.body) })));
 r.patch('/repair-orders/:id/concerns/:concernId', requireAnyPermission('ros:write', 'jobs:execute'), validate({ body: z.object({ cause: text(2000).optional(), correction: text(2000).optional() }) }),

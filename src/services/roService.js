@@ -1,7 +1,8 @@
 import { withTransaction } from '../config/db.js';
 import {
   RepairOrder, Location, Customer, Vehicle, User, Inspection, InspectionTemplate, Estimate, EstimateVersion,
-  Invoice, DiagnosticSession, PartRequest, Reservation, TimeEntry, Finding, Appointment
+  Invoice, DiagnosticSession, PartRequest, Reservation, TimeEntry, Finding, Appointment, Membership, MembershipPlan,
+  PredictiveSignal, Evidence
 } from '../models/index.js';
 import { RO_OPEN_STATUSES } from '../models/operations.js';
 import { audit } from './audit.js';
@@ -137,8 +138,8 @@ const summarizeEstimate = async (roId) => {
 const enrichList = async (auth, ros) => {
   const ids = (key) => [...new Set(ros.map(r => r[key]).filter(Boolean))];
   const [customers, vehicles, users, estimates, invoices] = await Promise.all([
-    Customer.find({ id: { $in: ids('customerId') } }).select('id name phone email').lean(),
-    Vehicle.find({ id: { $in: ids('vehicleId') } }).select('id year make model vin licensePlate color mileage').lean(),
+    Customer.find({ id: { $in: ids('customerId') } }).select('id name phone email address').lean(),
+    Vehicle.find({ id: { $in: ids('vehicleId') } }).select('id year make model trim engine transmission driveType bodyClass fuelType vin licensePlate plateState color mileage mileageUnit').lean(),
     User.find({ id: { $in: [...ids('assignedTechId'), ...ids('advisorId')] } }).select('id name role specialty').lean(),
     Estimate.find({ roId: { $in: ros.map(r => r.id) } }).select('roId status currentVersionNumber').lean(),
     Invoice.find({ roId: { $in: ros.map(r => r.id) }, status: { $ne: 'voided' } }).select('roId status paymentStatus totals balanceCents invoiceNumber').lean()
@@ -191,7 +192,7 @@ export const getRepairOrder = async (auth, idOrNumber) => {
     return {
       id: ro.id, roNumber: ro.roNumber, status: ro.status, locationId: ro.locationId, vehicle: enriched.vehicle,
       concerns: ro.concerns.map(c => ({ id: c.id, text: c.text, cause: c.cause, correction: c.correction })),
-      promisedAt: ro.promisedAt, createdAt: ro.createdAt, closedAt: ro.closedAt,
+      promisedAt: ro.promisedAt, createdAt: ro.createdAt, closedAt: ro.closedAt, customerNotes: ro.customerNotes || '',
       timeline: ro.timeline.filter(t => t.customerVisible).map(t => ({ at: t.at, summary: t.summary })),
       jobs: ro.jobs.map(j => ({ title: j.title, status: j.status })),
       estimate: await summarizeEstimate(ro.id),
@@ -208,6 +209,15 @@ export const getRepairOrder = async (auth, idOrNumber) => {
     TimeEntry.aggregate([{ $match: { roId: ro.id, status: 'closed' } }, { $group: { _id: '$techId', minutes: { $sum: '$minutes' } } }]),
     summarizeEstimate(ro.id)
   ]);
+  const [membership, lastService, upcoming, photos, inspections, diagnostics] = await Promise.all([
+    Membership.findOne({ customerId: ro.customerId, status: { $in: ['active', 'past_due', 'suspended', 'pending_payment'] }, $or: [{ vehicleIds: { $size: 0 } }, { vehicleIds: ro.vehicleId }] }).sort({ createdAt: -1 }).lean(),
+    RepairOrder.findOne({ vehicleId: ro.vehicleId, id: { $ne: ro.id }, status: 'closed' }).sort({ closedAt: -1 }).select('roNumber closedAt createdAt odometerIn odometerOut').lean(),
+    PredictiveSignal.find({ vehicleId: ro.vehicleId, status: 'open' }).sort({ dueAt: 1 }).limit(5).select('title dueAt dueMileage').lean(),
+    Evidence.countDocuments({ roId: ro.id, kind: { $in: ['photo', 'video'] }, status: 'current' }),
+    Inspection.countDocuments({ roId: ro.id }),
+    DiagnosticSession.countDocuments({ roId: ro.id })
+  ]);
+  const plan = membership ? await MembershipPlan.findOne({ planId: membership.planId, version: membership.planVersion }).select('name code').lean() : null;
   const findingCounts = Object.fromEntries(findingsSummary.map(f => [f._id, f.n]));
   return {
     ...enriched,
@@ -221,8 +231,23 @@ export const getRepairOrder = async (auth, idOrNumber) => {
     estimate,
     partRequests: toDTO(partRequests),
     reservations: toDTO(reservations),
-    clockedMinutesByTech: Object.fromEntries(timeAgg.map(t => [t._id, t.minutes]))
+    clockedMinutesByTech: Object.fromEntries(timeAgg.map(t => [t._id, t.minutes])),
+    membership: membership ? { id: membership.id, number: membership.number, status: membership.status, planName: plan?.name, planCode: plan?.code, planVersion: membership.planVersion, startedAt: membership.startedAt, currentPeriodEnd: membership.currentPeriodEnd } : null,
+    lastService: lastService ? { roNumber: lastService.roNumber, date: lastService.closedAt || lastService.createdAt, odometer: lastService.odometerOut ?? lastService.odometerIn ?? null } : null,
+    upcomingServices: upcoming.map(s => ({ title: s.title, dueAt: s.dueAt, dueMileage: s.dueMileage })),
+    documentCounts: { photos, inspections, diagnostics }
   };
+};
+
+export const updateNotes = async (req, idOrNumber, { advisorNotes, customerNotes }) => {
+  const ro = await findRoForAccess(req.auth, idOrNumber);
+  const set = {};
+  if (advisorNotes !== undefined) set.advisorNotes = advisorNotes;
+  if (customerNotes !== undefined) set.customerNotes = customerNotes;
+  if (!Object.keys(set).length) throw badRequest('Nothing to update');
+  await RepairOrder.updateOne({ id: ro.id }, { $set: set, $inc: { __v: 1 } });
+  await audit(req, { eventType: 'RO_NOTES_UPDATED', category: 'operational', entityType: 'RepairOrder', entityId: ro.id, locationId: ro.locationId, action: `Updated ${Object.keys(set).join(' and ')} on ${ro.roNumber}` });
+  return getRepairOrder(req.auth, ro.id);
 };
 
 const guardTransition = async (ro, to) => {
