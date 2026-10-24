@@ -96,7 +96,7 @@ const MembershipSchema = new Schema({
   planId: { type: String, required: true },
   planVersion: { type: Number, required: true },
   riders: { type: [new Schema({ riderId: String, version: Number, addedAt: Date }, { _id: false })], default: [] },
-  status: { type: String, enum: ['pending_payment', 'active', 'past_due', 'cancelled', 'expired'], default: 'pending_payment', index: true },
+  status: { type: String, enum: ['pending_payment', 'active', 'past_due', 'suspended', 'cancelled', 'expired'], default: 'pending_payment', index: true },
   billingCycle: { type: String, enum: ['monthly', 'annual'], default: 'annual' },
   startedAt: Date,
   currentPeriodStart: Date,

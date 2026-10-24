@@ -597,6 +597,8 @@ export const creditVendorReturn = async (req, id, { creditCents }) => {
   assertLocation(req.auth, vr.locationId);
   const updated = await VendorReturn.findOneAndUpdate({ id, status: 'shipped' }, { $set: { status: 'credited', creditCents, creditedAt: new Date() } }, { new: true }).lean();
   if (!updated) throw conflict('Only shipped returns can be credited');
+  const { queueEconomics } = await import('./economicsService.js');
+  await queueEconomics('vendor_return', { returnId: id }, id);
   await audit(req, { eventType: 'VENDOR_RETURN_CREDITED', category: 'financial', entityType: 'VendorReturn', entityId: id, locationId: vr.locationId, action: `Supplier credit ${creditCents} cents recorded on ${vr.returnNumber}` });
   return toDTO(updated);
 };

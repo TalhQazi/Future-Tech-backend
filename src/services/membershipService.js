@@ -1,8 +1,10 @@
 import { withTransaction } from '../config/db.js';
-import { MembershipPlan, ServiceRider, Membership, EntitlementUsage, Customer, Vehicle } from '../models/index.js';
+import { MembershipPlan, ServiceRider, Membership, EntitlementUsage, Customer, Vehicle, Invoice } from '../models/index.js';
 import { audit } from './audit.js';
 import { nextNumber } from './sequence.js';
-import { assertCustomerScope, resolveLocationId } from '../security/access.js';
+import { assertCustomerScope, resolveLocationId, assertLocation } from '../security/access.js';
+import { recordLifecycle, queueEconomics, activeConfig } from './economicsService.js';
+import { registerJobHandler } from './jobService.js';
 import { notFound, badRequest, conflict } from '../lib/errors.js';
 import { toDTO } from '../lib/http.js';
 import { uuid } from '../lib/crypto.js';
@@ -150,15 +152,14 @@ export const enroll = async (req, input) => {
     }, session);
     return { membership, invoice };
   });
-  if (result.invoice) {
-    const { queueEconomics } = await import('./economicsService.js');
-    await queueEconomics('invoice', { invoiceId: result.invoice.id }, result.invoice.id);
-  }
+  await recordLifecycle(result.membership, 'enrolled', { key: 'initial', at: now, by: auth.userId, detail: { invoiceNumber: result.invoice?.invoiceNumber, amountCents } });
+  if (result.invoice) await queueEconomics('invoice', { invoiceId: result.invoice.id }, result.invoice.id);
   return { membership: toDTO(result.membership.toObject()), invoice: result.invoice ? toDTO(result.invoice) : null };
 };
 
 export const activateFromPayment = async (membershipId, session = null) => {
-  await Membership.updateOne({ id: membershipId, status: { $in: ['pending_payment', 'past_due'] } }, { $set: { status: 'active' } }, { session });
+  const m = await Membership.findOneAndUpdate({ id: membershipId, status: { $in: ['pending_payment', 'past_due'] } }, { $set: { status: 'active' } }, { session, new: true }).lean();
+  if (m) await recordLifecycle(m, 'activated', { key: new Date(m.currentPeriodStart).toISOString(), detail: { trigger: 'payment' } });
 };
 
 export const cancelMembership = async (req, id, { reason }) => {
@@ -170,8 +171,90 @@ export const cancelMembership = async (req, id, { reason }) => {
   ).lean();
   if (!updated) throw conflict('Membership is not active');
   await audit(req, { eventType: 'MEMBERSHIP_CANCELLED', category: 'financial', entityType: 'Membership', entityId: id, action: `Cancelled membership ${updated.number}`, reason });
+  await recordLifecycle(updated, 'cancelled', { key: 'initial', at: updated.cancelledAt, by: req.auth.userId, detail: { reason } });
   return toDTO(updated);
 };
+
+// ---------------------------------------------------------------------------
+// Lifecycle: renewal, plan change, suspension (each recorded in the ledger)
+// ---------------------------------------------------------------------------
+const DAY = 86400000;
+const SYSTEM_REQ = { auth: { userId: 'system', role: 'system', locationIds: [] }, correlationId: 'membership-lifecycle', system: true };
+const scopeCheck = (req, m) => { if (!req.system && m.locationId) assertLocation(req.auth, m.locationId); };
+
+export const renewMembership = async (req, id) => {
+  const m = await Membership.findOne({ id }).lean();
+  if (!m) throw notFound('Membership');
+  scopeCheck(req, m);
+  if (!['active', 'past_due'].includes(m.status)) throw conflict('Only active or past-due memberships can renew');
+  if (new Date(m.currentPeriodEnd) - Date.now() > 30 * DAY) throw badRequest('Renewal opens 30 days before the current period ends');
+  const plan = await MembershipPlan.findOne({ planId: m.planId, status: 'active' }).sort({ version: -1 }).lean();
+  if (!plan) throw conflict('This plan is retired; change the plan before renewing');
+  const riders = (await Promise.all(m.riders.map(r => ServiceRider.findOne({ riderId: r.riderId, status: 'active' }).sort({ version: -1 }).lean()))).filter(r => r && plan.ridersAllowed.includes(r.riderId));
+  const cycleMonths = m.billingCycle === 'monthly' ? 1 : plan.termMonths || 12;
+  const amountCents = (m.billingCycle === 'monthly' ? plan.priceMonthlyCents : plan.priceAnnualCents) + riders.reduce((s, r) => s + (r.priceMonthlyCents || 0) * cycleMonths, 0);
+  const start = new Date(m.currentPeriodEnd);
+  const customer = await Customer.findOne({ id: m.customerId }).lean();
+  const { createMembershipInvoice } = await import('./invoiceService.js');
+  const result = await withTransaction(async (session) => {
+    const updated = await Membership.findOneAndUpdate({ id, currentPeriodEnd: m.currentPeriodEnd }, { $set: { currentPeriodStart: start, currentPeriodEnd: addMonths(start, cycleMonths), planVersion: plan.version, riders: riders.map(r => ({ riderId: r.riderId, version: r.version, addedAt: new Date() })) } }, { new: true, session });
+    if (!updated) throw conflict('Membership was already renewed');
+    const invoice = amountCents > 0 ? await createMembershipInvoice(req, { membership: updated, customer, locationId: m.locationId, plan, riders, cycleMonths, amountCents, currency: plan.currency }, session) : null;
+    await audit(req, { eventType: 'MEMBERSHIP_RENEWED', category: 'financial', entityType: 'Membership', entityId: id, locationId: m.locationId, action: `Renewed ${m.number} on ${plan.name} v${plan.version}${invoice ? `, invoice ${invoice.invoiceNumber}` : ''}` }, session);
+    return { membership: updated, invoice };
+  });
+  await recordLifecycle(result.membership, 'renewed', { key: start.toISOString(), by: req.auth.userId, detail: { planVersion: plan.version, amountCents, invoiceNumber: result.invoice?.invoiceNumber } });
+  if (result.invoice) await queueEconomics('invoice', { invoiceId: result.invoice.id }, result.invoice.id);
+  return { membership: toDTO(result.membership.toObject()), invoice: result.invoice ? toDTO(result.invoice) : null };
+};
+
+export const changePlan = async (req, id, { planId, reason }) => {
+  const m = await Membership.findOne({ id }).lean();
+  if (!m) throw notFound('Membership');
+  scopeCheck(req, m);
+  if (!['active', 'past_due', 'suspended'].includes(m.status)) throw conflict('Only current memberships can change plan');
+  const plan = await MembershipPlan.findOne({ planId, status: 'active' }).sort({ version: -1 }).lean();
+  if (!plan) throw notFound('Active membership plan');
+  if (plan.planId === m.planId && plan.version === m.planVersion) throw conflict('Already on this plan version');
+  const kept = m.riders.filter(r => plan.ridersAllowed.includes(r.riderId));
+  const updated = await Membership.findOneAndUpdate({ id, planId: m.planId, planVersion: m.planVersion }, { $set: { planId: plan.planId, planVersion: plan.version, riders: kept } }, { new: true }).lean();
+  if (!updated) throw conflict('Membership changed; reload and try again');
+  const detail = { fromPlanId: m.planId, fromVersion: m.planVersion, toPlanId: plan.planId, toVersion: plan.version, removedRiders: m.riders.filter(r => !kept.includes(r)).map(r => r.riderId), reason };
+  await audit(req, { eventType: 'MEMBERSHIP_PLAN_CHANGED', category: 'financial', entityType: 'Membership', entityId: id, locationId: m.locationId, action: `${m.number}: plan ${m.planId}@${m.planVersion} -> ${plan.planId}@${plan.version}`, before: { planId: m.planId, planVersion: m.planVersion }, after: { planId: plan.planId, planVersion: plan.version }, reason });
+  await recordLifecycle(updated, 'plan_changed', { by: req.auth.userId, detail });
+  return { membership: toDTO(updated), note: 'Coverage follows the new plan now; the new price applies from the next renewal.' };
+};
+
+export const setSuspended = async (req, id, { suspend, reason }) => {
+  const m = await Membership.findOne({ id }).lean();
+  if (!m) throw notFound('Membership');
+  scopeCheck(req, m);
+  const updated = await Membership.findOneAndUpdate({ id, status: { $in: suspend ? ['active', 'past_due'] : ['suspended'] } }, { $set: { status: suspend ? 'suspended' : 'active' } }, { new: true }).lean();
+  if (!updated) throw conflict(suspend ? 'Only active or past-due memberships can be suspended' : 'Membership is not suspended');
+  await audit(req, { eventType: suspend ? 'MEMBERSHIP_SUSPENDED' : 'MEMBERSHIP_RESUMED', category: 'financial', entityType: 'Membership', entityId: id, locationId: m.locationId, action: `${suspend ? 'Suspended' : 'Resumed'} ${m.number}`, reason });
+  await recordLifecycle(updated, suspend ? 'suspended' : 'resumed', { by: req.auth.userId, detail: { reason, fromStatus: m.status } });
+  return toDTO(updated);
+};
+
+// Daily: auto-renewals, expiry of non-renewing memberships, past-due after the grace period.
+registerJobHandler('membership.lifecycle_daily', async () => {
+  const cfg = await activeConfig();
+  const now = new Date();
+  const out = { renewed: 0, expired: 0, pastDue: 0, errors: [] };
+  for (const m of await Membership.find({ autoRenew: true, status: { $in: ['active', 'past_due'] }, currentPeriodEnd: { $lte: new Date(now.getTime() + DAY) } }).lean()) {
+    try { await renewMembership(SYSTEM_REQ, m.id); out.renewed += 1; } catch (err) { out.errors.push(`${m.number}: ${err.message}`); }
+  }
+  for (const m of await Membership.find({ autoRenew: { $ne: true }, status: { $in: ['active', 'past_due'] }, currentPeriodEnd: { $lt: now } }).lean()) {
+    const u = await Membership.findOneAndUpdate({ id: m.id, status: m.status }, { $set: { status: 'expired' } }, { new: true }).lean();
+    if (u) { out.expired += 1; await recordLifecycle(u, 'expired', { key: new Date(m.currentPeriodEnd).toISOString() }); }
+  }
+  const unpaid = await Invoice.find({ kind: 'membership', status: 'posted', balanceCents: { $gt: 0 }, postedAt: { $lt: new Date(now - (cfg.membershipGraceDays ?? 15) * DAY) } }).select('id membershipId').lean();
+  for (const inv of unpaid) {
+    const u = await Membership.findOneAndUpdate({ id: inv.membershipId, status: 'active' }, { $set: { status: 'past_due' } }, { new: true }).lean();
+    if (u) { out.pastDue += 1; await recordLifecycle(u, 'past_due', { key: inv.id, detail: { invoiceId: inv.id } }); }
+  }
+  return out;
+});
 
 export const getMembership = async (auth, id) => {
   const m = await Membership.findOne({ $or: [{ id }, { number: id }] }).lean();

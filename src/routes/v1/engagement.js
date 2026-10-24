@@ -47,6 +47,10 @@ r.get('/memberships', staffOr('memberships:read'), h(async (req, res) => ok(res,
 r.get('/memberships/:id', staffOr('memberships:read'), h(async (req, res) => ok(res, { membership: await memberships.getMembership(req.auth, req.params.id) })));
 r.post('/memberships', requirePermission('memberships:sell'), idempotent({ required: true }), validate({ body: z.object({ customerId: id, planId: id, billingCycle: z.enum(['monthly', 'annual']).default('annual'), vehicleIds: z.array(id).default([]), riderIds: z.array(id).default([]), locationId: id.optional(), autoRenew: z.boolean().optional() }) }),
   h(async (req, res) => ok(res, await memberships.enroll(req, req.body), 201)));
+r.post('/memberships/:id/renew', requirePermission('memberships:sell'), h(async (req, res) => ok(res, await memberships.renewMembership(req, req.params.id))));
+r.post('/memberships/:id/change-plan', requirePermission('memberships:sell'), validate({ body: z.object({ planId: id, reason: reqText(500) }) }), h(async (req, res) => ok(res, await memberships.changePlan(req, req.params.id, req.body))));
+r.post('/memberships/:id/suspend', requirePermission('memberships:sell'), validate({ body: z.object({ reason: reqText(500) }) }), h(async (req, res) => ok(res, { membership: await memberships.setSuspended(req, req.params.id, { suspend: true, reason: req.body.reason }) })));
+r.post('/memberships/:id/resume', requirePermission('memberships:sell'), validate({ body: z.object({ reason: reqText(500) }) }), h(async (req, res) => ok(res, { membership: await memberships.setSuspended(req, req.params.id, { suspend: false, reason: req.body.reason }) })));
 r.post('/memberships/:id/cancel', requirePermission('memberships:sell'), validate({ body: z.object({ reason: reqText(500) }) }), h(async (req, res) => ok(res, { membership: await memberships.cancelMembership(req, req.params.id, req.body) })));
 
 // ---- analytics ---------------------------------------------------------------------------------

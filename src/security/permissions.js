@@ -26,6 +26,7 @@ export const PERMISSIONS = [
   'ai:use', 'ai:review', 'ai:admin',
   'economics:customer_value', 'economics:location', 'economics:corporate', 'economics:config',
   'risk:alerts', 'risk:read', 'interventions:read', 'interventions:manage',
+  'intelligence:vehicle', 'economics:adjust', 'economics:approve', 'referrals:read', 'referrals:manage',
   'portal:access'
 ];
 
@@ -44,7 +45,7 @@ const ADVISOR = [
   'diagnostics:read', 'techdata:read', 'fixes:read', 'parts_intel:read',
   'forum:read', 'forum:write', 'fuel:read', 'fuel:write', 'predictive:read',
   'ai:use', 'ai:review',
-  'economics:customer_value', 'risk:alerts'
+  'economics:customer_value', 'risk:alerts', 'intelligence:vehicle', 'referrals:read', 'referrals:manage'
 ];
 
 const TECHNICIAN = [
@@ -60,7 +61,7 @@ const TECHNICIAN = [
   'diagnostics:read', 'diagnostics:write', 'devices:command',
   'techdata:read', 'fixes:read', 'parts_intel:read', 'parts_intel:write',
   'forum:read', 'forum:write', 'fuel:read', 'predictive:read',
-  'ai:use'
+  'ai:use', 'intelligence:vehicle'
 ];
 
 const PARTS = [
@@ -79,7 +80,7 @@ const ACCOUNTING = [
   'invoices:read', 'invoices:write', 'invoices:post', 'payments:record', 'refunds:request', 'refunds:approve',
   'adjustments:create', 'reconciliation:manage',
   'messages:read', 'messages:send', 'messages:internal',
-  'analytics:location', 'audit:read'
+  'analytics:location', 'audit:read', 'intelligence:vehicle', 'economics:adjust', 'economics:approve'
 ];
 
 const MANAGER = [...new Set([
@@ -97,7 +98,7 @@ const ADMIN = PERMISSIONS.filter(p => p !== 'portal:access');
 const EXECUTIVE = [
   'users:read', 'locations:read', 'customers:read', 'vehicles:read', 'memberships:read', 'ros:read', 'invoices:read',
   'analytics:location', 'analytics:corporate', 'economics:customer_value', 'economics:location', 'economics:corporate',
-  'risk:alerts', 'risk:read', 'interventions:read', 'audit:read'
+  'risk:alerts', 'risk:read', 'interventions:read', 'audit:read', 'intelligence:vehicle', 'referrals:read'
 ];
 
 const CUSTOMER = ['portal:access'];

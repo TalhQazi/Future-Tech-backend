@@ -96,7 +96,7 @@ const MileageRecordSchema = new Schema({
   odometer: { type: Number, required: true, min: 0 },
   unit: { type: String, enum: ['mi', 'km'], default: 'mi' },
   recordedAt: { type: Date, default: Date.now },
-  source: { type: String, enum: ['ro_check_in', 'ro_check_out', 'appointment', 'customer', 'fuel', 'telemetry', 'manual_correction'], required: true },
+  source: { type: String, enum: ['ro_check_in', 'ro_check_out', 'appointment', 'customer', 'fuel', 'telemetry', 'manual_correction', 'import'], required: true },
   sourceRef: String,
   recordedBy: String,
   flagged: { type: Boolean, default: false }, // lower than a previous reading

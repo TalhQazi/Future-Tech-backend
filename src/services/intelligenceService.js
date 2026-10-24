@@ -83,6 +83,10 @@ export const recordPartFailure = async (req, { installedPartId, comebackRoId, fa
 export const updateWarrantyClaim = async (req, failureId, claim) => {
   const updated = await PartFailure.findOneAndUpdate({ id: failureId }, { $set: Object.fromEntries(Object.entries(claim).map(([k, v]) => [`warrantyClaim.${k}`, v])) }, { new: true }).lean();
   if (!updated) throw notFound('Part failure');
+  if (updated.warrantyClaim?.status === 'approved') {
+    const { queueEconomics } = await import('./economicsService.js');
+    await queueEconomics('warranty', { failureId }, failureId);
+  }
   await audit(req, { eventType: 'WARRANTY_CLAIM_UPDATED', category: 'financial', entityType: 'PartFailure', entityId: failureId, action: `Warranty claim ${claim.status || 'updated'}${claim.creditCents ? ` credit ${claim.creditCents} cents` : ''}` });
   return toDTO(updated);
 };

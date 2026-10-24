@@ -72,6 +72,10 @@ export const enqueueDailyJobs = async () => {
   const day = new Date().toISOString().slice(0, 10);
   if (day === lastDaily) return;
   await enqueueJob('economics.risk_refresh_all', { scheduled: true }, `risk-daily:${day}`);
+  await enqueueJob('membership.lifecycle_daily', {}, `membership-daily:${day}`);
+  const prev = new Date(`${day.slice(0, 7)}-01T00:00:00Z`);
+  prev.setUTCMonth(prev.getUTCMonth() - 1);
+  await enqueueJob('economics.monthly_close', { month: prev.toISOString().slice(0, 7) }, `close:${prev.toISOString().slice(0, 7)}`);
   lastDaily = day;
 };
 

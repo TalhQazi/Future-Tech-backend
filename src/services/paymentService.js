@@ -70,6 +70,7 @@ export const createOnlinePayment = async (req, invoiceId, { amountCents }) => {
     return { paymentId: payment.id, clientSecret: intent.client_secret, publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || null };
   } catch (err) {
     await Payment.updateOne({ id: payment.id }, { $set: { status: 'failed', failureReason: err.message } });
+    await queueEconomics('payment', { paymentId: payment.id }, `${payment.id}:failed`);
     throw err;
   }
 };
@@ -89,6 +90,7 @@ const applyIntent = async (payment, intent) => {
     }
   });
   if (status === 'succeeded') await queueEconomics('payment', { paymentId: payment.id }, payment.id);
+  if (status === 'failed') await queueEconomics('payment', { paymentId: payment.id }, `${payment.id}:failed`);
   return Payment.findOne({ id: payment.id }).lean();
 };
 
